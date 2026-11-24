@@ -1,0 +1,11 @@
+# Папка сборки CMake
+build/
+out/
+
+# Локальные файлы базы данных
+*.db
+*.db-journal
+*.sqlite
+
+# Служебные настройки VS Code
+.vscode/
