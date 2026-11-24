@@ -1,6 +1,11 @@
 #include "MainWindow.h"
 #include "SubscriptionDialog.h"
+#include "AnalyticsWidget.h"
 
+#include <QFile>
+#include <QFileDialog>
+#include <QMenuBar>
+#include <QTextStream>
 #include <QAbstractItemView>
 #include <QCheckBox>
 #include <QComboBox>
@@ -64,6 +69,15 @@ QString formatCurrencyTotals(const QMap<QString, double>& totals) {
     return parts.join(" + ");
 }
 
+// Экранирует текст по стандарту CSV (если есть кавычки, точка с запятой или перенос строки)
+QString escapeCsv(QString text) {
+    text.replace("\"", "\"\"");
+    if (text.contains(';') || text.contains('"') || text.contains('\n')) {
+        return "\"" + text + "\"";
+    }
+    return text;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -84,6 +98,8 @@ MainWindow::MainWindow(QWidget* parent)
 }
 
 void MainWindow::setupUi() {
+    setupMenuBar();
+
     auto* central = new QWidget(this);
     auto* mainLayout = new QVBoxLayout(central);
     mainLayout->setSpacing(12);
@@ -94,6 +110,10 @@ void MainWindow::setupUi() {
     m_tabs = new QTabWidget(this);
     m_tabs->addTab(createSubscriptionsTab(), "Подписки");
     m_tabs->addTab(createHistoryTab(), "История платежей");
+
+    m_analyticsWidget = new AnalyticsWidget(this);
+    m_tabs->addTab(m_analyticsWidget, "Аналитика");
+
     mainLayout->addWidget(m_tabs, 1);
 
     setCentralWidget(central);
@@ -224,6 +244,7 @@ void MainWindow::reloadAllData() {
     populateSubscriptionsTable();
     populateHistoryTable();
     updateSummaryCards();
+    m_analyticsWidget->updateData(m_subscriptions);
     updateButtonsState();
 }
 
@@ -489,4 +510,98 @@ void MainWindow::onMarkAsPaid() {
     } else {
         QMessageBox::critical(this, "Ошибка записи платежа", m_db.lastError());
     }
+}
+
+void MainWindow::setupMenuBar() {
+    auto* fileMenu = menuBar()->addMenu("Файл");
+
+    auto* exportSubsAction = fileMenu->addAction("Экспорт подписок в CSV...");
+    auto* exportHistoryAction = fileMenu->addAction("Экспорт истории платежей в CSV...");
+    fileMenu->addSeparator();
+    auto* exitAction = fileMenu->addAction("Выход");
+
+    connect(exportSubsAction, &QAction::triggered,
+            this, &MainWindow::onExportSubscriptionsCsv);
+    connect(exportHistoryAction, &QAction::triggered,
+            this, &MainWindow::onExportHistoryCsv);
+    connect(exitAction, &QAction::triggered, this, &QWidget::close);
+}
+
+void MainWindow::onExportSubscriptionsCsv() {
+    const QString filePath = QFileDialog::getSaveFileName(
+        this,
+        "Сохранить список подписок",
+        "subscriptions_export.csv",
+        "CSV файлы (*.csv)");
+
+    if (filePath.isEmpty()) {
+        return;
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::critical(this, "Ошибка экспорта",
+                              "Не удалось открыть файл для записи:\n" + file.errorString());
+        return;
+    }
+
+    QTextStream out(&file);
+    out.setGenerateByteOrderMark(true); // UTF-8 BOM для корректной кириллицы в Excel
+
+    out << "Название;Категория;Сумма;Валюта;Периодичность;В месяц;Следующее списание;Статус;Заметки\n";
+    for (const auto& sub : m_subscriptions) {
+        QString cycleText = (sub.cycle == BillingCycle::CustomDays)
+            ? QString("Каждые %1 дн.").arg(sub.customDays)
+            : Subscription::cycleToDisplayName(sub.cycle);
+
+        out << escapeCsv(sub.name) << ';'
+            << escapeCsv(sub.category) << ';'
+            << QString::number(sub.amount, 'f', 2) << ';'
+            << escapeCsv(sub.currency) << ';'
+            << escapeCsv(cycleText) << ';'
+            << QString::number(sub.monthlyCost(), 'f', 2) << ';'
+            << sub.nextPaymentDate.toString("dd.MM.yyyy") << ';'
+            << (sub.active ? "Активна" : "На паузе") << ';'
+            << escapeCsv(sub.notes) << '\n';
+    }
+
+    statusBar()->showMessage("Список подписок экспортирован в " + filePath, 5000);
+}
+
+void MainWindow::onExportHistoryCsv() {
+    const auto history = m_db.getPaymentHistory();
+    if (history.isEmpty()) {
+        QMessageBox::information(this, "Экспорт истории", "История платежей пока пуста.");
+        return;
+    }
+
+    const QString filePath = QFileDialog::getSaveFileName(
+        this,
+        "Сохранить историю платежей",
+        "payment_history.csv",
+        "CSV файлы (*.csv)");
+
+    if (filePath.isEmpty()) {
+        return;
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::critical(this, "Ошибка экспорта",
+                              "Не удалось открыть файл для записи:\n" + file.errorString());
+        return;
+    }
+
+    QTextStream out(&file);
+    out.setGenerateByteOrderMark(true);
+
+    out << "Дата оплаты;Подписка;Сумма;Валюта\n";
+    for (const auto& rec : history) {
+        out << rec.paidDate.toString("dd.MM.yyyy") << ';'
+            << escapeCsv(rec.subscriptionName) << ';'
+            << QString::number(rec.amount, 'f', 2) << ';'
+            << escapeCsv(rec.currency) << '\n';
+    }
+
+    statusBar()->showMessage("История платежей экспортирована в " + filePath, 5000);
 }

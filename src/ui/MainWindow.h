@@ -5,6 +5,7 @@
 
 #include "database/DatabaseManager.h"
 
+class AnalyticsWidget;
 class QCheckBox;
 class QComboBox;
 class QLabel;
@@ -27,6 +28,9 @@ private slots:
     void onMarkAsPaid();
     void applyFilters();
     void updateButtonsState();
+    void onExportSubscriptionsCsv();
+    void onExportHistoryCsv();
+
 
 private:
     void setupUi();
@@ -39,6 +43,7 @@ private:
     void populateSubscriptionsTable();
     void populateHistoryTable();
     void updateSummaryCards();
+    void setupMenuBar();
 
     int selectedSubscriptionId() const;
     const Subscription* findSubscriptionById(int id) const;
@@ -68,4 +73,7 @@ private:
 
     // Таблица истории платежей
     QTableWidget* m_historyTable = nullptr;
+
+    // Виджет аналитики
+    AnalyticsWidget* m_analyticsWidget = nullptr;
 };

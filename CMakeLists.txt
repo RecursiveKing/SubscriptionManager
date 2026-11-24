@@ -20,6 +20,8 @@ add_executable(SubscriptionManager
     src/ui/MainWindow.cpp
     src/ui/SubscriptionDialog.h
     src/ui/SubscriptionDialog.cpp
+    src/ui/AnalyticsWidget.h
+    src/ui/AnalyticsWidget.cpp
 )
 
 target_include_directories(SubscriptionManager PRIVATE src)
